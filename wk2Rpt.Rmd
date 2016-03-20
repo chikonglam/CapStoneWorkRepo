@@ -180,8 +180,7 @@ The following code identifies foreign words from a sample of the dataset, then o
     
     smallSample <- sample(corpus$content, 200)
 
-    a3 <- NLP::annotate(smallSample, list(sent_token_annotator,
-    word_token_annotator, pos_tag_annotator))
+    a3 <- NLP::annotate(smallSample, list(sent_token_annotator, word_token_annotator, pos_tag_annotator))
     a3w <- subset(a3, type == "word")
     tags <- sapply(a3w$features, `[[`, "POS")
     tagtb <- table(tags)

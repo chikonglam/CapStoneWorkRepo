@@ -224,8 +224,7 @@ qplot(wordCt, coverage, data=covList95CovDf )  + labs(title=&quot;Coverage vs Wo
     
     smallSample &lt;- sample(corpus$content, 200)
 
-    a3 &lt;- NLP::annotate(smallSample, list(sent_token_annotator,
-    word_token_annotator, pos_tag_annotator))
+    a3 &lt;- NLP::annotate(smallSample, list(sent_token_annotator, word_token_annotator, pos_tag_annotator))
     a3w &lt;- subset(a3, type == &quot;word&quot;)
     tags &lt;- sapply(a3w$features, `[[`, &quot;POS&quot;)
     tagtb &lt;- table(tags)
