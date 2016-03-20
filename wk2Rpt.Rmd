@@ -1,0 +1,227 @@
+---
+title: "Exploratory Analysis of Predictive Input for The English Language"
+author: "Chi Lam"
+date: "March 19, 2016"
+output: html_document
+---
+
+Executive Summary
+==================
+This report identified many common words and common pharses, revealed the exponential relationship between coverage and dictionary sizes, demostrated the insignificance of foreign words, and suggested alternative ways to increase coverage and accuracy.
+
+Data Loading and Preparation
+============================
+### Libraries and Parameters
+Libraries are loaded, and overall parameters are set with the following code.
+```{r libsLoad, cache=TRUE, results="hide", warning=FALSE}
+library(tm)
+library(stringi)
+library(ggplot2)
+library(RWeka)
+library(slam)
+library(openNLP)
+
+set.seed(852489)
+```
+### Loading the Datasets
+The following code loads in the 3 datasets.  Note that a cached version of the HC corpora is downloaded first.  The zip file containing the datasets are extracted to the current directory.
+```{r dataLoadSep, cache=TRUE, results="hide", warning=FALSE}
+enBlogs <- readLines("final/en_US/en_US.blogs.txt")
+enNews <- readLines("final/en_US/en_US.news.txt")
+enTwitter <- readLines("final/en_US/en_US.twitter.txt")
+```
+
+
+Basic Metadata
+==================
+The following code generates some overall metadata of the datasets to give us a rough idea about the datasets.
+```{r dataStatsSep, cache=TRUE, results="hide"}
+#Get the input file statistics
+blogStats <- stri_stats_general(enBlogs)
+newsStats <- stri_stats_general(enNews)
+twitterStats <- stri_stats_general(enTwitter)
+```
+
+
+```{r StatsSep, cache=TRUE}
+blogStats
+newsStats
+twitterStats
+```
+
+Note that all three datasets are quite large, and therefore, we need to sample the datasets to have an acceptable performance and hardware requirement. 
+
+Data Preprocessing
+==================
+The following code samples 10000 data points from each source, do some basic cleaning of the data, and remove profanities in the data.
+
+```{r sampleData, cache=TRUE}
+#sample the datasets
+sampleBlogs <- sample(enBlogs,10000)
+sampleNews <- sample(enNews,10000)
+sampleTwitter <- sample(enTwitter,10000)
+
+#merge the datasets into a corpus
+sample <- c(sampleBlogs,sampleNews,sampleTwitter)
+corpus <- VCorpus(VectorSource(sample))
+
+```
+
+```{r cleanData, cache=TRUE, warning=FALSE}
+#rough standard cleaning
+corpus <- tm_map(corpus, removeNumbers) # remove numbers
+corpus <- tm_map(corpus, removePunctuation) # remove punctuation
+corpusus <- tm_map(corpus, content_transformer(tolower)) # convert to lower case
+
+#remove cuss words
+cussWords <- readLines('full-list-of-bad-words-banned-by-google.txt')
+corpus <- tm_map(corpus, removeWords, cussWords)
+ 
+#trim excessive whitespaces
+corpus <- tm_map(corpus, stripWhitespace) 
+```
+
+Exploratory analysis
+====================
+### Frequencies of Words
+The following code generates a Document Term Matrix that counts the unique word.  A plot of the frequencies vs the words are also generated.
+```{r dtmPlot, cache=TRUE}
+dtm <- DocumentTermMatrix(corpus)
+dtms <- removeSparseTerms(dtm , 0.999)
+wordFreq <- sort(colSums(as.matrix(dtms)), decreasing=TRUE)
+
+freqWf <- data.frame(word=names(wordFreq), freq=wordFreq)
+freqWf$word <- factor(freqWf$word, levels=freqWf$word, ordered=TRUE)
+
+ggplot(head(freqWf, 20), aes(word, freq)) + geom_bar(stat="identity") + labs(title="Top 20 Frequent Words", x="Word", y="Frequency")
+```
+
+All the words in the list are very common English words.
+
+### Histogram: Distrubution of Unique Word Reoccurances
+```{r freqOFreqPlot, cache=TRUE}
+hist(wordFreq, breaks = 100, main="Histogram of Unique Word Reoccurances", xlab="Unique Word Reoccurances" )
+```
+
+Note that while there are many words that have low reoccurances, there are sizeable bunch of words that have a significant reoccurance.
+
+### N-grams:  Frequencies of Pharses
+The following function will generate a plot of top 20 bigrams and trigrams.  
+```{r nGramsFunc, cache=TRUE}
+NGrams <- function(title, data, n) {
+    tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = n, max = n))
+    ngrams <- DocumentTermMatrix(data, control=list(tokenize=tokenizer))
+    ngrams <- sort(col_sums(ngrams), decreasing = TRUE)[1:20]
+    barplot <- barplot(ngrams, axes = FALSE, axisnames = FALSE, ylab = "frequency", main = title)
+    text(barplot, par("usr")[3], labels = names(ngrams), srt = 90, adj = c(1.1, 1.1),
+      xpd = TRUE, cex = 0.9)
+    axis(2)    
+}
+```
+
+#### Bigrams
+```{r bigrams, cache=TRUE}
+NGrams("Top 20 Bigrams", corpus, 2)
+```
+
+The top 20 bigrams are all very common pharses in the English language.
+
+#### Trigrams
+```{r trigrams, cache=TRUE}
+NGrams("Top 20 Trigrams", corpus, 3)
+```
+
+The top 20 trigrams are all very common pharses in the English language as well.
+
+### Dictionary Size Vs Coverage
+The following code generates a plot of the relationship between language coverage, and the number of unique words needed.
+
+```{r wordCtForCoverageFunc, cache=TRUE}
+wordCtForCoverage <- function(coverage) {
+    sumCover <- 0
+    coverVsWord <- integer()
+    
+    for(i in 1:length(freqWf$freq)) {
+        sumCover <- sumCover + freqWf$freq[i]
+        coverVsWord <- c(coverVsWord, sumCover)
+        if(sumCover >= coverage*sum(freqWf$freq)){
+            return (coverVsWord)
+        }
+    }
+}
+
+```
+```{r wordCtForCoveragePlot, cache=TRUE}
+covList95Cov <- wordCtForCoverage(0.95)
+covList95CovDf = data.frame(wordCt = 1:length(covList95Cov), coverage= covList95Cov/sum(freqWf$freq))
+qplot(wordCt, coverage, data=covList95CovDf )  + labs(title="Coverage vs Word Count", x="Word Count", y="Coverage")
+```
+
+Note that the relationship is exponential, and therefore, to increase coverage, the processing power ane memory needed must increase exponentially.  To illustrate this point more, the unique word count needed for 50% and 90% coverages are given below.
+
+#### 50% coverage
+```{r wordCtForCoverage50, cache=TRUE}
+    covList50Cov <- wordCtForCoverage(0.50)
+    length(covList50Cov)
+```
+
+#### 90% coverage
+```{r wordCtForCoverage90, cache=TRUE}
+    covList90Cov <- wordCtForCoverage(0.90)
+    length(covList90Cov)
+```
+
+### Foreign Words Identification
+The following code identifies foreign words from a sample of the dataset, then outputs the ratio of foreign word to total word count:
+```{r foreignWords, cache=TRUE}
+    sent_token_annotator <- Maxent_Sent_Token_Annotator()
+    word_token_annotator <- Maxent_Word_Token_Annotator()
+    pos_tag_annotator <- Maxent_POS_Tag_Annotator()
+    
+    smallSample <- sample(corpus$content, 200)
+
+    a3 <- NLP::annotate(smallSample, list(sent_token_annotator,
+    word_token_annotator, pos_tag_annotator))
+    a3w <- subset(a3, type == "word")
+    tags <- sapply(a3w$features, `[[`, "POS")
+    tagtb <- table(tags)
+    foreignCt <- tagtb["FW"]
+    
+    smallCorpus <- VCorpus(VectorSource(smallSample))
+    smallDtm <- DocumentTermMatrix(smallCorpus)
+    smallDtms <- removeSparseTerms(dtm , 0.999)
+    smallWordFreq <- colSums(as.matrix(smallDtms))
+    totalWordCt <- sum(smallWordFreq)
+    
+    foreignPct <- foreignCt / totalWordCt
+    foreignPct    
+```
+Note that only `r foreignPct * 100`% of the words are foreign, therefore they shouldn't raise much concern for the prediction model. 
+
+### Methods to Increase Coverage
+Since increasing the size of the corpora increases the processing power requirement and memory requirement exponentially, we think the following alternatives can increase the word coverage without significantly increasing corpora size:
+
+ * Include the user's inputs into the corpora
+ * Learn the input preference of the user
+ * Include the user's contact list into the corpora
+ * Include the user's incoming messages into the corpora
+ * Incorporate cules from the time, and location of the user
+
+Conclusion
+==========
+This report found these results:
+
+* Many common words are identified
+* Many common pharses (bigrams and trigrams) are identified
+* Coverage and dictionary sizes have an exponential relationship
+* Foreign words shouldn't draw any concern since their occurances are rare
+* There are alternative ways to increase coverage and accuracy
+
+Therefore, using a dictionary of common words should be able to help users when starting to type a word, and using 2 dictionaries of comomn bigrams and trigrams should be able to help users finishing their sentences.
+
+
+References
+===========
+HC corpora Datasets are available at http://www.corpora.heliohost.org/ A cached version was downloaded from Coursera on March 11, 2016.
+
+The profanity list was downloaded form http://www.freewebheaders.com/wordpress/wp-content/uploads/full-list-of-bad-words-banned-by-google-txt-file.zip on March 19, 2016
